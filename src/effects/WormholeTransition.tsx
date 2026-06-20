@@ -3,10 +3,11 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore } from '../store/gameStore'
 
-const TUNNEL_DURATION = 2.5
-const STAR_COUNT = 2500
-const TUNNEL_RADIUS = 2.5
-const TUNNEL_LENGTH = 40
+const DESKTOP_TUNNEL_DURATION = 2.6
+const VR_TUNNEL_DURATION = 3.8
+const STAR_COUNT = 3200
+const TUNNEL_RADIUS = 4.8
+const TUNNEL_LENGTH = 56
 
 export function WormholeTransition() {
   const transitioning = useGameStore((s) => s.transitioning)
@@ -16,6 +17,8 @@ export function WormholeTransition() {
   const flashRef = useRef<THREE.Mesh>(null)
   const groupRef = useRef<THREE.Group>(null)
   const bgRef = useRef<THREE.Mesh>(null)
+  const camWorldPos = useRef(new THREE.Vector3())
+  const camWorldQuat = useRef(new THREE.Quaternion())
 
   const starGeo = useMemo(() => {
     const geo = new THREE.BufferGeometry()
@@ -46,7 +49,8 @@ export function WormholeTransition() {
   const tunnelMat = useMemo(() => {
     return new THREE.ShaderMaterial({
       side: THREE.BackSide,
-      depthWrite: true,
+      depthWrite: false,
+      depthTest: false,
       uniforms: {
         uTime: { value: 0 },
         uProgress: { value: 0 },
@@ -99,13 +103,14 @@ export function WormholeTransition() {
     })
   }, [])
 
-  useFrame(({ camera }, delta) => {
+  useFrame(({ camera, gl }, delta) => {
     if (!transitioning) {
       progressRef.current = 0
       return
     }
 
-    progressRef.current += delta / TUNNEL_DURATION
+    const duration = gl.xr.isPresenting ? VR_TUNNEL_DURATION : DESKTOP_TUNNEL_DURATION
+    progressRef.current += delta / duration
 
     if (progressRef.current >= 1.0) {
       progressRef.current = 0
@@ -118,13 +123,15 @@ export function WormholeTransition() {
     tunnelMat.uniforms.uProgress.value = p
 
     if (groupRef.current) {
-      groupRef.current.position.copy(camera.position)
-      groupRef.current.quaternion.copy(camera.quaternion)
+      camera.getWorldPosition(camWorldPos.current)
+      camera.getWorldQuaternion(camWorldQuat.current)
+      groupRef.current.position.copy(camWorldPos.current)
+      groupRef.current.quaternion.copy(camWorldQuat.current)
     }
 
     if (bgRef.current) {
       const mat = bgRef.current.material as THREE.MeshBasicMaterial
-      mat.opacity = Math.min(1, p * 5)
+      mat.opacity = Math.min(1, 0.2 + p * 2.8)
     }
 
     if (starsRef.current) {
@@ -153,18 +160,18 @@ export function WormholeTransition() {
   return (
     <group ref={groupRef} renderOrder={999}>
       {/* Black background sphere to hide the level behind */}
-      <mesh ref={bgRef} renderOrder={998}>
-        <sphereGeometry args={[TUNNEL_RADIUS + 1, 16, 16]} />
-        <meshBasicMaterial color="#000005" side={THREE.BackSide} transparent opacity={0} />
+      <mesh ref={bgRef} renderOrder={998} frustumCulled={false}>
+        <sphereGeometry args={[TUNNEL_RADIUS + 6, 24, 24]} />
+        <meshBasicMaterial color="#000005" side={THREE.BackSide} transparent opacity={0} depthTest={false} depthWrite={false} />
       </mesh>
 
       {/* Tunnel cylinder - fully opaque */}
-      <mesh rotation={[Math.PI / 2, 0, 0]} material={tunnelMat} renderOrder={999}>
+      <mesh rotation={[Math.PI / 2, 0, 0]} material={tunnelMat} renderOrder={999} frustumCulled={false}>
         <cylinderGeometry args={[TUNNEL_RADIUS, TUNNEL_RADIUS * 0.8, TUNNEL_LENGTH, 32, 1, true]} />
       </mesh>
 
       {/* Stars flying past */}
-      <points ref={starsRef} geometry={starGeo} renderOrder={1000}>
+      <points ref={starsRef} geometry={starGeo} renderOrder={1000} frustumCulled={false}>
         <pointsMaterial
           vertexColors
           size={0.1}
@@ -173,11 +180,12 @@ export function WormholeTransition() {
           sizeAttenuation
           blending={THREE.AdditiveBlending}
           depthWrite={false}
+          depthTest={false}
         />
       </points>
 
       {/* End flash / exit light */}
-      <mesh ref={flashRef} position={[0, 0, -TUNNEL_LENGTH / 3]} renderOrder={1001}>
+      <mesh ref={flashRef} position={[0, 0, -TUNNEL_LENGTH / 3]} renderOrder={1001} frustumCulled={false}>
         <circleGeometry args={[2.5, 32]} />
         <meshBasicMaterial
           color="#c0d8ff"
@@ -185,13 +193,14 @@ export function WormholeTransition() {
           opacity={0}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
+          depthTest={false}
         />
       </mesh>
 
       {/* Front cap to block view behind */}
-      <mesh position={[0, 0, TUNNEL_LENGTH / 2.5]} renderOrder={998}>
-        <circleGeometry args={[TUNNEL_RADIUS + 0.5, 32]} />
-        <meshBasicMaterial color="#000005" side={THREE.DoubleSide} />
+      <mesh position={[0, 0, TUNNEL_LENGTH / 2.5]} renderOrder={998} frustumCulled={false}>
+        <circleGeometry args={[TUNNEL_RADIUS + 1.5, 40]} />
+        <meshBasicMaterial color="#000005" side={THREE.DoubleSide} depthTest={false} depthWrite={false} />
       </mesh>
     </group>
   )

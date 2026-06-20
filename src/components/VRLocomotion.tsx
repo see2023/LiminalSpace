@@ -1,7 +1,8 @@
 import { useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { XROrigin, useXRControllerLocomotion, useXRInputSourceState, useXR } from '@react-three/xr'
+import { XROrigin, useXR } from '@react-three/xr'
 import * as THREE from 'three'
+import { damp, damp2, damp3 } from 'maath/easing'
 import { useGameStore } from '../store/gameStore'
 import type { LevelType } from '../store/gameStore'
 import { APP_VERSION } from '../version'
@@ -11,6 +12,11 @@ const VR_MOVE_SPEED = 5
 const SWIM_SPEED = 4
 const SWIM_THRESHOLD = 0.3
 const DEADZONE = 0.15
+const INPUT_DAMP = 0.12
+const VELOCITY_DAMP = 0.14
+const TURN_DAMP = 0.12
+const VOID_Y_DAMP = 0.22
+const ELEVATOR_COOLDOWN = 0.35
 
 function sendLog(level: string, msg: string) {
   try {
@@ -24,9 +30,6 @@ export function VRLocomotion() {
   const currentLevel = useGameStore((s) => s.currentLevel)
   const transitioning = useGameStore((s) => s.transitioning)
 
-  const leftController = useXRInputSourceState('controller', 'left')
-  const rightController = useXRInputSourceState('controller', 'right')
-
   const prevLeftPos = useRef(new THREE.Vector3())
   const prevRightPos = useRef(new THREE.Vector3())
   const swimVel = useRef(new THREE.Vector3())
@@ -36,27 +39,33 @@ export function VRLocomotion() {
   const _up = useRef(new THREE.Vector3(0, 1, 0))
   const logTimer = useRef(0)
   const didLogOnce = useRef(false)
-
-  useXRControllerLocomotion(
-    originRef,
-    { speed: VR_MOVE_SPEED },
-    { type: 'smooth', speed: 1.8 },
-    'left',
-  )
+  const poseErrorLoggedAt = useRef(0)
+  const smoothedInput = useRef(new THREE.Vector2(0, 0)) // x: strafe, y: fwd
+  const smoothedTurn = useRef(0)
+  const turnState = useRef({ value: 0 })
+  const worldVelocity = useRef(new THREE.Vector3())
+  const desiredVelocity = useRef(new THREE.Vector3())
+  const voidTargetY = useRef(0)
+  const elevatorCd = useRef(0)
 
   useEffect(() => {
     if (!originRef.current) return
     if (currentLevel === 'backrooms') {
       originRef.current.position.set(6, 0, 6)
+      voidTargetY.current = 0
     } else if (currentLevel === 'poolrooms') {
       originRef.current.position.set(-32.5, 0.2, -32.5) // Walkway height is 0.2
+      voidTargetY.current = 0.2
     } else if (currentLevel === 'voidstation') {
       originRef.current.position.set(0, 0, 0)
+      voidTargetY.current = 0
+      elevatorCd.current = 0
     }
   }, [currentLevel])
 
   useFrame(({ camera, gl }, delta) => {
     if (!gl.xr.isPresenting) return
+    if (elevatorCd.current > 0) elevatorCd.current -= delta
 
     const session = gl.xr.getSession()
 
@@ -64,10 +73,12 @@ export function VRLocomotion() {
     if (logTimer.current > 3 && !didLogOnce.current) {
       didLogOnce.current = true
       const sources = session?.inputSources
+      const hasLeft = !!sources && Array.from(sources).some((s) => s.handedness === 'left')
+      const hasRight = !!sources && Array.from(sources).some((s) => s.handedness === 'right')
       const info = sources
         ? Array.from(sources).map(s => `${s.handedness}:profiles=[${s.profiles.join(',')}],axes=${s.gamepad?.axes.length ?? 'none'}`).join(' | ')
         : 'no session'
-      sendLog('info', `[VRLoco] controllers: left=${!!leftController} right=${!!rightController} | sources: ${info}`)
+      sendLog('info', `[VRLoco] controllers: left=${hasLeft} right=${hasRight} | sources: ${info}`)
     }
 
     if (transitioning) return
@@ -92,14 +103,26 @@ export function VRLocomotion() {
         }
       }
 
-      if (Math.abs(fwd) > 0.01 || Math.abs(strafe) > 0.01) {
+      damp2(smoothedInput.current, [strafe, fwd], INPUT_DAMP, delta)
+      damp(turnState.current, 'value', turn, TURN_DAMP, delta)
+      smoothedTurn.current = turnState.current.value
+
+      if (Math.abs(smoothedInput.current.y) > 0.01 || Math.abs(smoothedInput.current.x) > 0.01 || worldVelocity.current.lengthSq() > 0.00001) {
         camera.getWorldDirection(_dir.current)
         _dir.current.y = 0
         _dir.current.normalize()
         _right.current.crossVectors(_dir.current, _up.current).normalize()
 
-        const moveX = (fwd * _dir.current.x + strafe * _right.current.x) * VR_MOVE_SPEED * delta
-        const moveZ = (fwd * _dir.current.z + strafe * _right.current.z) * VR_MOVE_SPEED * delta
+        desiredVelocity.current.set(0, 0, 0)
+        desiredVelocity.current.addScaledVector(_dir.current, smoothedInput.current.y)
+        desiredVelocity.current.addScaledVector(_right.current, smoothedInput.current.x)
+        if (desiredVelocity.current.lengthSq() > 0.0001) {
+          desiredVelocity.current.normalize().multiplyScalar(VR_MOVE_SPEED)
+        }
+        damp3(worldVelocity.current, desiredVelocity.current, VELOCITY_DAMP, delta)
+
+        const moveX = worldVelocity.current.x * delta
+        const moveZ = worldVelocity.current.z * delta
 
         const camWorld = new THREE.Vector3()
         camera.getWorldPosition(camWorld)
@@ -109,7 +132,7 @@ export function VRLocomotion() {
         let blockXZ = false
 
         if (currentLevel === 'voidstation') {
-          const gy = Math.round(originRef.current.position.y / VS_CELL)
+          const gy = Math.round(voidTargetY.current / VS_CELL)
           const gx = Math.round(camWorld.x / VS_CELL)
           const gz = Math.round(camWorld.z / VS_CELL)
           const lx = camWorld.x - gx * VS_CELL
@@ -122,17 +145,17 @@ export function VRLocomotion() {
           const canGoUp = cell.connectY && cellAbove.exists
           const canGoDown = cellBelow.connectY && cellBelow.exists
 
-          let targetY = gy * VS_CELL
-
-          if (canGoUp && Math.hypot(lx - 1.2, lz - 1.2) < 0.7) {
-            targetY = (gy + 1) * VS_CELL
-          } else if (canGoDown && Math.hypot(lx - (-1.2), lz - (-1.2)) < 0.7) {
-            targetY = (gy - 1) * VS_CELL
+          if (elevatorCd.current <= 0 && canGoUp && Math.hypot(lx - 1.2, lz - 1.2) < 0.7) {
+            voidTargetY.current = (gy + 1) * VS_CELL
+            elevatorCd.current = ELEVATOR_COOLDOWN
+          } else if (elevatorCd.current <= 0 && canGoDown && Math.hypot(lx - (-1.2), lz - (-1.2)) < 0.7) {
+            voidTargetY.current = (gy - 1) * VS_CELL
+            elevatorCd.current = ELEVATOR_COOLDOWN
           }
 
-          originRef.current.position.y = THREE.MathUtils.lerp(originRef.current.position.y, targetY, delta * 4)
+          damp(originRef.current.position, 'y', voidTargetY.current, VOID_Y_DAMP, delta)
 
-          if (Math.abs(originRef.current.position.y - gy * VS_CELL) > 0.5) {
+          if (Math.abs(originRef.current.position.y - voidTargetY.current) > 0.08) {
             blockXZ = true
           }
         }
@@ -168,7 +191,7 @@ export function VRLocomotion() {
         // Even if not moving XZ, we might be standing on a pad and need to move Y
         const camWorld = new THREE.Vector3()
         camera.getWorldPosition(camWorld)
-        const gy = Math.round(originRef.current.position.y / VS_CELL)
+        const gy = Math.round(voidTargetY.current / VS_CELL)
         const gx = Math.round(camWorld.x / VS_CELL)
         const gz = Math.round(camWorld.z / VS_CELL)
         const lx = camWorld.x - gx * VS_CELL
@@ -181,19 +204,19 @@ export function VRLocomotion() {
         const canGoUp = cell.connectY && cellAbove.exists
         const canGoDown = cellBelow.connectY && cellBelow.exists
 
-        let targetY = gy * VS_CELL
-
-        if (canGoUp && Math.hypot(lx - 1.2, lz - 1.2) < 0.7) {
-          targetY = (gy + 1) * VS_CELL
-        } else if (canGoDown && Math.hypot(lx - (-1.2), lz - (-1.2)) < 0.7) {
-          targetY = (gy - 1) * VS_CELL
+        if (elevatorCd.current <= 0 && canGoUp && Math.hypot(lx - 1.2, lz - 1.2) < 0.7) {
+          voidTargetY.current = (gy + 1) * VS_CELL
+          elevatorCd.current = ELEVATOR_COOLDOWN
+        } else if (elevatorCd.current <= 0 && canGoDown && Math.hypot(lx - (-1.2), lz - (-1.2)) < 0.7) {
+          voidTargetY.current = (gy - 1) * VS_CELL
+          elevatorCd.current = ELEVATOR_COOLDOWN
         }
 
-        originRef.current.position.y = THREE.MathUtils.lerp(originRef.current.position.y, targetY, delta * 4)
+        damp(originRef.current.position, 'y', voidTargetY.current, VOID_Y_DAMP, delta)
       }
 
-      if (Math.abs(turn) > 0.01) {
-        originRef.current.rotation.y -= turn * 1.8 * delta
+      if (Math.abs(smoothedTurn.current) > 0.01) {
+        originRef.current.rotation.y -= smoothedTurn.current * 1.8 * delta
       }
     }
 
@@ -212,12 +235,29 @@ export function VRLocomotion() {
       const refSpace = gl.xr.getReferenceSpace()
       if (!frame || !refSpace) return
 
-      const leftInput = leftController?.inputSource
-      const rightInput = rightController?.inputSource
+      const leftInput = session?.inputSources
+        ? Array.from(session.inputSources).find((s) => s.handedness === 'left')
+        : undefined
+      const rightInput = session?.inputSources
+        ? Array.from(session.inputSources).find((s) => s.handedness === 'right')
+        : undefined
 
       if (leftInput?.gripSpace && rightInput?.gripSpace) {
-        const leftPose = frame.getPose(leftInput.gripSpace, refSpace)
-        const rightPose = frame.getPose(rightInput.gripSpace, refSpace)
+        let leftPose: XRPose | null = null
+        let rightPose: XRPose | null = null
+        try {
+          leftPose = frame.getPose(leftInput.gripSpace, refSpace) ?? null
+          rightPose = frame.getPose(rightInput.gripSpace, refSpace) ?? null
+        } catch (err) {
+          // Pico / WebXR occasionally throws session mismatch during/after XR state transitions.
+          // Swallowing this frame prevents a hard crash/freeze of the render loop.
+          const now = performance.now()
+          if (now - poseErrorLoggedAt.current > 5000) {
+            poseErrorLoggedAt.current = now
+            const message = err instanceof Error ? err.message : String(err)
+            sendLog('warn', `[VRLoco] getPose skipped: ${message}`)
+          }
+        }
 
         if (leftPose && rightPose) {
           const lp = new THREE.Vector3(

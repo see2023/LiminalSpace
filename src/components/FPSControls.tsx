@@ -1,12 +1,17 @@
 import { useRef, useEffect, useCallback } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { damp, damp2, damp3 } from 'maath/easing'
 import { useGameStore, getEffectiveInputMode } from '../store/gameStore'
 import { mobileInput } from '../store/inputState'
 import { isWallAt, isVoidWalkable, getVoidCellData, getPoolFloorHeight, isPoolWall, VS_CELL, PLAYER_RADIUS } from '../utils/collision'
 
 const MOVE_SPEED = 4.5
 const PLAYER_HEIGHT = 1.6
+const INPUT_DAMP = 0.12
+const VELOCITY_DAMP = 0.14
+const VOID_Y_DAMP = 0.22
+const ELEVATOR_COOLDOWN = 0.35
 
 export function FPSControls() {
   const { camera, gl } = useThree()
@@ -61,10 +66,14 @@ export function FPSControls() {
   useEffect(() => {
     if (currentLevel === 'backrooms') {
       camera.position.set(6, PLAYER_HEIGHT, 6)
+      _voidTargetY.current = PLAYER_HEIGHT
     } else if (currentLevel === 'poolrooms') {
       camera.position.set(-32.5, 2.0, -32.5) // Spawn on the dry walkway (Row 1, Col 1 of grid)
+      _voidTargetY.current = 1.0
     } else if (currentLevel === 'voidstation') {
       camera.position.set(0, PLAYER_HEIGHT, 0)
+      _voidTargetY.current = PLAYER_HEIGHT
+      _elevatorCd.current = 0
     }
   }, [currentLevel, camera])
 
@@ -72,9 +81,15 @@ export function FPSControls() {
   const _camDir = useRef(new THREE.Vector3())
   const _right = useRef(new THREE.Vector3())
   const _up = useRef(new THREE.Vector3(0, 1, 0))
+  const _input = useRef(new THREE.Vector2(0, 0)) // x: strafe, y: fwd
+  const _velocity = useRef(new THREE.Vector3())
+  const _desiredVelocity = useRef(new THREE.Vector3())
+  const _voidTargetY = useRef(PLAYER_HEIGHT)
+  const _elevatorCd = useRef(0)
 
   useFrame((_, delta) => {
     if (!started || transitioning) return
+    if (_elevatorCd.current > 0) _elevatorCd.current -= delta
 
     const mode = getEffectiveInputMode()
     let fwd = 0
@@ -129,7 +144,7 @@ export function FPSControls() {
     let blockXZ = false
 
     if (currentLevel === 'voidstation') {
-      const gy = Math.round((camera.position.y - PLAYER_HEIGHT) / VS_CELL)
+      const gy = Math.round((_voidTargetY.current - PLAYER_HEIGHT) / VS_CELL)
       const gx = Math.round(camera.position.x / VS_CELL)
       const gz = Math.round(camera.position.z / VS_CELL)
       const lx = camera.position.x - gx * VS_CELL
@@ -142,29 +157,27 @@ export function FPSControls() {
       const canGoUp = cell.connectY && cellAbove.exists
       const canGoDown = cellBelow.connectY && cellBelow.exists
 
-      let targetY = gy * VS_CELL + PLAYER_HEIGHT
-
-      if (canGoUp && Math.hypot(lx - 1.2, lz - 1.2) < 0.7) {
-        targetY = (gy + 1) * VS_CELL + PLAYER_HEIGHT
-      } else if (canGoDown && Math.hypot(lx - (-1.2), lz - (-1.2)) < 0.7) {
-        targetY = (gy - 1) * VS_CELL + PLAYER_HEIGHT
+      if (_elevatorCd.current <= 0 && canGoUp && Math.hypot(lx - 1.2, lz - 1.2) < 0.7) {
+        _voidTargetY.current = (gy + 1) * VS_CELL + PLAYER_HEIGHT
+        _elevatorCd.current = ELEVATOR_COOLDOWN
+      } else if (_elevatorCd.current <= 0 && canGoDown && Math.hypot(lx - (-1.2), lz - (-1.2)) < 0.7) {
+        _voidTargetY.current = (gy - 1) * VS_CELL + PLAYER_HEIGHT
+        _elevatorCd.current = ELEVATOR_COOLDOWN
       }
 
-      camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetY, delta * 4)
+      damp(camera.position, 'y', _voidTargetY.current, VOID_Y_DAMP, delta)
 
-      if (Math.abs(camera.position.y - (gy * VS_CELL + PLAYER_HEIGHT)) > 0.5) {
+      if (Math.abs(camera.position.y - _voidTargetY.current) > 0.08) {
         blockXZ = true
       }
     } else {
+      _voidTargetY.current = currentLevel === 'poolrooms' ? 1.0 : PLAYER_HEIGHT
       camera.position.y = currentLevel === 'poolrooms' ? 1.0 : PLAYER_HEIGHT
     }
 
-    if (blockXZ) {
-      fwd = 0
-      strafe = 0
-    }
-
-    if (Math.abs(fwd) < 0.05 && Math.abs(strafe) < 0.05) return
+    const targetFwd = blockXZ ? 0 : fwd
+    const targetStrafe = blockXZ ? 0 : strafe
+    damp2(_input.current, [targetStrafe, targetFwd], INPUT_DAMP, delta)
 
     camera.getWorldDirection(_camDir.current)
     _camDir.current.y = 0
@@ -172,10 +185,20 @@ export function FPSControls() {
 
     _right.current.crossVectors(_camDir.current, _up.current).normalize()
 
-    _moveDir.current.set(0, 0, 0)
-    _moveDir.current.addScaledVector(_camDir.current, fwd)
-    _moveDir.current.addScaledVector(_right.current, strafe)
-    _moveDir.current.normalize().multiplyScalar(MOVE_SPEED * delta)
+    _desiredVelocity.current.set(0, 0, 0)
+    _desiredVelocity.current.addScaledVector(_camDir.current, _input.current.y)
+    _desiredVelocity.current.addScaledVector(_right.current, _input.current.x)
+    if (_desiredVelocity.current.lengthSq() > 0.0001) {
+      _desiredVelocity.current.normalize().multiplyScalar(MOVE_SPEED)
+    }
+
+    damp3(_velocity.current, _desiredVelocity.current, VELOCITY_DAMP, delta)
+
+    if (_velocity.current.lengthSq() < 0.00001 && Math.abs(targetFwd) < 0.05 && Math.abs(targetStrafe) < 0.05) {
+      return
+    }
+
+    _moveDir.current.set(_velocity.current.x * delta, 0, _velocity.current.z * delta)
 
     const newX = camera.position.x + _moveDir.current.x
     const newZ = camera.position.z + _moveDir.current.z

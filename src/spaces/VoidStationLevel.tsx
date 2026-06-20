@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
+import { useXR } from '@react-three/xr'
 import * as THREE from 'three'
 import { Portal } from './Portal'
 import { VS_CELL as CELL_SIZE, VS_PLATFORM as PLATFORM_SIZE, VS_CORRIDOR_W as CORRIDOR_WIDTH, getVoidCellData } from '../utils/collision'
@@ -7,6 +8,7 @@ import { VS_CELL as CELL_SIZE, VS_PLATFORM as PLATFORM_SIZE, VS_CORRIDOR_W as CO
 const RAILING_HEIGHT = 0.9
 const RENDER_RADIUS = 3
 const LEVELS_Y = 3
+const globalFlowUniforms = { uTime: { value: 0 } }
 
 function seededRandom(seed: number) {
   let s = seed
@@ -33,33 +35,40 @@ const globalNetTexture = (() => {
 })()
 
 function FlowingLight({ length, color, offsetPos }: { length: number; color: string; offsetPos: [number, number, number] }) {
-  const matRef = useRef<THREE.MeshBasicMaterial>(null)
-  const tex = useMemo(() => {
-    const canvas = document.createElement('canvas')
-    canvas.width = 16; canvas.height = 256
-    const ctx = canvas.getContext('2d')!
-    const grad = ctx.createLinearGradient(0, 0, 0, 256)
-    grad.addColorStop(0, 'rgba(255,255,255,0)')
-    grad.addColorStop(0.5, 'rgba(255,255,255,1)')
-    grad.addColorStop(1, 'rgba(255,255,255,0)')
-    ctx.fillStyle = grad
-    ctx.fillRect(0, 0, 16, 256)
-    const t = new THREE.CanvasTexture(canvas)
-    t.wrapT = THREE.RepeatWrapping
-    t.repeat.set(1, length / 2)
-    return t
-  }, [length])
-
-  useFrame((_, delta) => {
-    if (matRef.current && matRef.current.map) {
-      matRef.current.map.offset.y -= delta * 1.5
-    }
-  })
+  const mat = useMemo(() => {
+    return new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        ...globalFlowUniforms,
+        uColor: { value: new THREE.Color(color) },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        uniform vec3 uColor;
+        varying vec2 vUv;
+        void main() {
+          float trail = exp(-pow(abs(fract(vUv.y * 4.0 - uTime * 1.7) - 0.5) * 6.0, 2.0));
+          float edgeFade = smoothstep(0.05, 0.4, vUv.x) * smoothstep(0.05, 0.4, 1.0 - vUv.x);
+          float a = trail * edgeFade;
+          gl_FragColor = vec4(uColor * (0.5 + a), a);
+        }
+      `,
+    })
+  }, [color])
 
   return (
     <mesh position={offsetPos} rotation={[-Math.PI / 2, 0, 0]}>
       <planeGeometry args={[0.1, length]} />
-      <meshBasicMaterial ref={matRef} map={tex} color={color} transparent opacity={0.9} blending={THREE.AdditiveBlending} depthWrite={false} />
+      <primitive object={mat} attach="material" />
     </mesh>
   )
 }
@@ -94,11 +103,14 @@ function SectorSign({ gx, axis }: { gx: number; gy: number; gz: number; axis: st
   )
 }
 
-function Corridor({ start, length, axis, hue, gx, gy, gz }: { start: number; length: number; axis: 'x' | 'z'; hue: number; gx: number; gy: number; gz: number }) {
+type DetailMode = 'high' | 'low'
+
+function Corridor({ start, length, axis, hue, gx, gy, gz, detail = 'high' }: { start: number; length: number; axis: 'x' | 'z'; hue: number; gx: number; gy: number; gz: number; detail?: DetailMode }) {
   const halfLen = length / 2
   const halfW = CORRIDOR_WIDTH / 2
   const emissive = `hsl(${hue}, 75%, 30%)`
   const bright = `hsl(${hue}, 90%, 50%)`
+  const lowDetail = detail === 'low'
 
   const cx = axis === 'x' ? start + halfLen : 0
   const cz = axis === 'z' ? start + halfLen : 0
@@ -126,18 +138,22 @@ function Corridor({ start, length, axis, hue, gx, gy, gz }: { start: number; len
       </mesh>
 
       {/* Flowing Edge Lights */}
-      <FlowingLight length={length} color={bright} offsetPos={[-halfW + 0.15, 0.14, 0]} />
-      <FlowingLight length={length} color={bright} offsetPos={[halfW - 0.15, 0.14, 0]} />
+      {!lowDetail && <FlowingLight length={length} color={bright} offsetPos={[-halfW + 0.15, 0.14, 0]} />}
+      {!lowDetail && <FlowingLight length={length} color={bright} offsetPos={[halfW - 0.15, 0.14, 0]} />}
 
-      {/* Safety Nets */}
-      <mesh position={[-halfW, RAILING_HEIGHT / 2, 0]} rotation={[0, Math.PI / 2, 0]}>
-        <planeGeometry args={[length, RAILING_HEIGHT]} />
-        <meshBasicMaterial map={netTex} color={emissive} transparent opacity={0.6} side={THREE.DoubleSide} depthWrite={false} blending={THREE.AdditiveBlending} />
-      </mesh>
-      <mesh position={[halfW, RAILING_HEIGHT / 2, 0]} rotation={[0, -Math.PI / 2, 0]}>
-        <planeGeometry args={[length, RAILING_HEIGHT]} />
-        <meshBasicMaterial map={netTex} color={emissive} transparent opacity={0.6} side={THREE.DoubleSide} depthWrite={false} blending={THREE.AdditiveBlending} />
-      </mesh>
+      {!lowDetail && (
+        <>
+          {/* Safety Nets */}
+          <mesh position={[-halfW, RAILING_HEIGHT / 2, 0]} rotation={[0, Math.PI / 2, 0]}>
+            <planeGeometry args={[length, RAILING_HEIGHT]} />
+            <meshBasicMaterial map={netTex} color={emissive} transparent opacity={0.6} side={THREE.DoubleSide} depthWrite={false} blending={THREE.AdditiveBlending} />
+          </mesh>
+          <mesh position={[halfW, RAILING_HEIGHT / 2, 0]} rotation={[0, -Math.PI / 2, 0]}>
+            <planeGeometry args={[length, RAILING_HEIGHT]} />
+            <meshBasicMaterial map={netTex} color={emissive} transparent opacity={0.6} side={THREE.DoubleSide} depthWrite={false} blending={THREE.AdditiveBlending} />
+          </mesh>
+        </>
+      )}
 
       {/* Top Railing Bars */}
       <mesh position={[-halfW, RAILING_HEIGHT, 0]}>
@@ -150,7 +166,7 @@ function Corridor({ start, length, axis, hue, gx, gy, gz }: { start: number; len
       </mesh>
 
       {/* Railing posts */}
-      {[-0.4, 0, 0.4].map((t, i) => (
+      {!lowDetail && [-0.4, 0, 0.4].map((t, i) => (
         <group key={i} position={[0, RAILING_HEIGHT / 2, t * length]}>
           <mesh position={[-halfW, 0, 0]}>
             <cylinderGeometry args={[0.03, 0.03, RAILING_HEIGHT, 4]} />
@@ -163,7 +179,7 @@ function Corridor({ start, length, axis, hue, gx, gy, gz }: { start: number; len
         </group>
       ))}
 
-      <SectorSign gx={gx} gy={gy} gz={gz} axis={axis} />
+      {!lowDetail && <SectorSign gx={gx} gy={gy} gz={gz} axis={axis} />}
     </group>
   )
 }
@@ -205,7 +221,7 @@ function ElevatorPad({ type }: { type: 'up' | 'down' }) {
   )
 }
 
-function PlatformCell({ gx, gy, gz }: { gx: number; gy: number; gz: number }) {
+function PlatformCell({ gx, gy, gz, detail = 'high' }: { gx: number; gy: number; gz: number; detail?: DetailMode }) {
   const cell = useMemo(() => getVoidCellData(gx, gy, gz), [gx, gy, gz])
   const neighborX = useMemo(() => getVoidCellData(gx + 1, gy, gz), [gx, gy, gz])
   const neighborZ = useMemo(() => getVoidCellData(gx, gy, gz + 1), [gx, gy, gz])
@@ -220,6 +236,7 @@ function PlatformCell({ gx, gy, gz }: { gx: number; gy: number; gz: number }) {
   const emissive = `hsl(${cell.hue}, 75%, 30%)`
   const platformColor = `hsl(${cell.hue}, 40%, 8%)`
   const brightEmissive = `hsl(${cell.hue}, 90%, 50%)`
+  const lowDetail = detail === 'low'
 
   const hasElevatorUp = cell.connectY && neighborYUp.exists
   const hasElevatorDown = cellBelow.connectY && cellBelow.exists
@@ -231,38 +248,42 @@ function PlatformCell({ gx, gy, gz }: { gx: number; gy: number; gz: number }) {
         <boxGeometry args={[PLATFORM_SIZE, 0.25, PLATFORM_SIZE]} />
         <meshStandardMaterial color={platformColor} emissive={emissive} emissiveIntensity={0.3} metalness={0.8} roughness={0.2} />
       </mesh>
-      {/* Platform grid pattern (cross on top) */}
-      <mesh position={[0, 0.14, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[PLATFORM_SIZE - 0.2, PLATFORM_SIZE - 0.2]} />
-        <meshBasicMaterial color={brightEmissive} transparent opacity={0.08} />
-      </mesh>
-      {/* Underside glow strip */}
-      <mesh position={[0, -0.2, 0]}>
-        <boxGeometry args={[PLATFORM_SIZE * 0.8, 0.04, PLATFORM_SIZE * 0.8]} />
-        <meshBasicMaterial color={brightEmissive} transparent opacity={0.4} />
-      </mesh>
+      {!lowDetail && (
+        <>
+          {/* Platform grid pattern (cross on top) */}
+          <mesh position={[0, 0.14, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[PLATFORM_SIZE - 0.2, PLATFORM_SIZE - 0.2]} />
+            <meshBasicMaterial color={brightEmissive} transparent opacity={0.08} />
+          </mesh>
+          {/* Underside glow strip */}
+          <mesh position={[0, -0.2, 0]}>
+            <boxGeometry args={[PLATFORM_SIZE * 0.8, 0.04, PLATFORM_SIZE * 0.8]} />
+            <meshBasicMaterial color={brightEmissive} transparent opacity={0.4} />
+          </mesh>
 
-      {/* Platform center decal */}
-      <mesh position={[0, 0.15, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[1.2, 1.3, 32]} />
-        <meshBasicMaterial color={brightEmissive} transparent opacity={0.5} />
-      </mesh>
-      <mesh position={[0, 0.15, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.5, 16]} />
-        <meshBasicMaterial color={brightEmissive} transparent opacity={0.2} />
-      </mesh>
+          {/* Platform center decal */}
+          <mesh position={[0, 0.15, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[1.2, 1.3, 32]} />
+            <meshBasicMaterial color={brightEmissive} transparent opacity={0.5} />
+          </mesh>
+          <mesh position={[0, 0.15, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <circleGeometry args={[0.5, 16]} />
+            <meshBasicMaterial color={brightEmissive} transparent opacity={0.2} />
+          </mesh>
+        </>
+      )}
 
       {/* Elevators */}
-      {hasElevatorUp && <ElevatorPad type="up" />}
-      {hasElevatorDown && <ElevatorPad type="down" />}
+      {!lowDetail && hasElevatorUp && <ElevatorPad type="up" />}
+      {!lowDetail && hasElevatorDown && <ElevatorPad type="down" />}
 
       {/* Corridor +X */}
       {cell.connectX && neighborX.exists && (
-        <Corridor start={PLATFORM_SIZE / 2} length={CELL_SIZE - PLATFORM_SIZE} axis="x" hue={cell.hue} gx={gx} gy={gy} gz={gz} />
+        <Corridor start={PLATFORM_SIZE / 2} length={CELL_SIZE - PLATFORM_SIZE} axis="x" hue={cell.hue} gx={gx} gy={gy} gz={gz} detail={detail} />
       )}
       {/* Corridor +Z */}
       {cell.connectZ && neighborZ.exists && (
-        <Corridor start={PLATFORM_SIZE / 2} length={CELL_SIZE - PLATFORM_SIZE} axis="z" hue={cell.hue} gx={gx} gy={gy} gz={gz} />
+        <Corridor start={PLATFORM_SIZE / 2} length={CELL_SIZE - PLATFORM_SIZE} axis="z" hue={cell.hue} gx={gx} gy={gy} gz={gz} detail={detail} />
       )}
     </group>
   )
@@ -346,7 +367,7 @@ function Galaxy({ position, radius, color, tilt, speed, stars = 400 }: {
 
 function BackgroundStars() {
   const geo = useMemo(() => {
-    const count = 2000
+    const count = 1400
     const positions = new Float32Array(count * 3)
     const colors = new Float32Array(count * 3)
     const rand = seededRandom(42)
@@ -377,19 +398,23 @@ function BackgroundStars() {
 
 export function VoidStationLevel() {
   const { camera } = useThree()
+  const isPresenting = useXR((s) => s.session != null)
   const [gridPos, setGridPos] = useState([0, 0, 0])
   const lastCheck = useRef(0)
+  const camWorld = useRef(new THREE.Vector3())
+  const renderRadius = isPresenting ? 2 : RENDER_RADIUS
+  const levelsY = isPresenting ? 2 : LEVELS_Y
 
-  useFrame(() => {
+  useFrame((_, delta) => {
+    globalFlowUniforms.uTime.value += delta
     const now = performance.now()
     if (now - lastCheck.current < 300) return
     lastCheck.current = now
 
-    const camWorld = new THREE.Vector3()
-    camera.getWorldPosition(camWorld)
-    const cgx = Math.round(camWorld.x / CELL_SIZE)
-    const cgy = Math.round(camWorld.y / CELL_SIZE)
-    const cgz = Math.round(camWorld.z / CELL_SIZE)
+    camera.getWorldPosition(camWorld.current)
+    const cgx = Math.round(camWorld.current.x / CELL_SIZE)
+    const cgy = Math.round(camWorld.current.y / CELL_SIZE)
+    const cgz = Math.round(camWorld.current.z / CELL_SIZE)
 
     if (cgx !== gridPos[0] || cgy !== gridPos[1] || cgz !== gridPos[2]) {
       setGridPos([cgx, cgy, cgz])
@@ -399,17 +424,17 @@ export function VoidStationLevel() {
   const visibleCells = useMemo(() => {
     const cells: { gx: number; gy: number; gz: number }[] = []
     const [cgx, cgy, cgz] = gridPos
-    for (let dx = -RENDER_RADIUS; dx <= RENDER_RADIUS; dx++) {
-      for (let dz = -RENDER_RADIUS; dz <= RENDER_RADIUS; dz++) {
-        for (let dy = -1; dy <= LEVELS_Y - 1; dy++) {
-          if (dx * dx + dz * dz <= RENDER_RADIUS * RENDER_RADIUS) {
+    for (let dx = -renderRadius; dx <= renderRadius; dx++) {
+      for (let dz = -renderRadius; dz <= renderRadius; dz++) {
+        for (let dy = -1; dy <= levelsY - 1; dy++) {
+          if (dx * dx + dz * dz <= renderRadius * renderRadius) {
             cells.push({ gx: cgx + dx, gy: cgy + dy, gz: cgz + dz })
           }
         }
       }
     }
     return cells
-  }, [gridPos])
+  }, [gridPos, renderRadius, levelsY])
 
   return (
     <>
@@ -418,21 +443,27 @@ export function VoidStationLevel() {
       <ambientLight color="#181830" intensity={0.5} />
 
       {/* Nebulae - large, distant */}
-      <Nebula position={[70, 25, -50]} radius={18} color="#ff2060" speed={0.04} count={100} />
-      <Nebula position={[-60, -15, 70]} radius={14} color="#2060ff" speed={-0.03} count={80} />
-      <Nebula position={[40, 45, 55]} radius={12} color="#20ff80" speed={0.035} count={70} />
-      <Nebula position={[-80, 35, -40]} radius={20} color="#ff6020" speed={-0.025} count={120} />
+      <Nebula position={[70, 25, -50]} radius={18} color="#ff2060" speed={0.04} count={isPresenting ? 64 : 90} />
+      <Nebula position={[-60, -15, 70]} radius={14} color="#2060ff" speed={-0.03} count={isPresenting ? 52 : 72} />
+      <Nebula position={[40, 45, 55]} radius={12} color="#20ff80" speed={0.035} count={isPresenting ? 48 : 64} />
+      <Nebula position={[-80, 35, -40]} radius={20} color="#ff6020" speed={-0.025} count={isPresenting ? 70 : 100} />
 
       {/* Galaxies */}
-      <Galaxy position={[90, 35, 90]} radius={22} color="#ffe0a0" tilt={[0.5, 0, 0.3]} speed={0.06} stars={500} />
-      <Galaxy position={[-70, 55, -90]} radius={28} color="#a0c0ff" tilt={[-0.3, 0, 0.6]} speed={-0.04} stars={600} />
-      <Galaxy position={[50, -35, -100]} radius={18} color="#ffa0e0" tilt={[0.8, 0, -0.2]} speed={0.05} stars={400} />
+      <Galaxy position={[90, 35, 90]} radius={22} color="#ffe0a0" tilt={[0.5, 0, 0.3]} speed={0.06} stars={isPresenting ? 280 : 420} />
+      <Galaxy position={[-70, 55, -90]} radius={28} color="#a0c0ff" tilt={[-0.3, 0, 0.6]} speed={-0.04} stars={isPresenting ? 340 : 500} />
+      <Galaxy position={[50, -35, -100]} radius={18} color="#ffa0e0" tilt={[0.8, 0, -0.2]} speed={0.05} stars={isPresenting ? 240 : 340} />
 
       <BackgroundStars />
 
       {/* Platforms */}
       {visibleCells.map((c) => (
-        <PlatformCell key={`${c.gx}_${c.gy}_${c.gz}`} gx={c.gx} gy={c.gy} gz={c.gz} />
+        <PlatformCell
+          key={`${c.gx}_${c.gy}_${c.gz}`}
+          gx={c.gx}
+          gy={c.gy}
+          gz={c.gz}
+          detail={(Math.abs(c.gx - gridPos[0]) + Math.abs(c.gy - gridPos[1]) + Math.abs(c.gz - gridPos[2]) >= (isPresenting ? 2 : 3)) ? 'low' : 'high'}
+        />
       ))}
 
       {/* Portals - placed 3 cells away from origin so player has room to explore */}
