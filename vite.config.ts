@@ -73,6 +73,7 @@ function vrErrorReporter(): Plugin {
 }
 
 export default defineConfig({
+  base: '/LiminalSpace/',
   plugins: [react(), basicSsl(), vrErrorReporter()],
   server: {
     host: true,

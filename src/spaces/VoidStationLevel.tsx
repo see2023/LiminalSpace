@@ -64,7 +64,7 @@ function FlowingLight({ length, color, offsetPos }: { length: number; color: str
   )
 }
 
-function SectorSign({ gx, gy, gz, axis }: { gx: number; gy: number; gz: number; axis: string }) {
+function SectorSign({ gx, axis }: { gx: number; gy: number; gz: number; axis: string }) {
   const tex = useMemo(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 256
@@ -210,7 +210,6 @@ function PlatformCell({ gx, gy, gz }: { gx: number; gy: number; gz: number }) {
   const neighborX = useMemo(() => getVoidCellData(gx + 1, gy, gz), [gx, gy, gz])
   const neighborZ = useMemo(() => getVoidCellData(gx, gy, gz + 1), [gx, gy, gz])
   const neighborYUp = useMemo(() => getVoidCellData(gx, gy + 1, gz), [gx, gy, gz])
-  const neighborYDown = useMemo(() => getVoidCellData(gx, gy - 1, gz), [gx, gy, gz])
   const cellBelow = useMemo(() => getVoidCellData(gx, gy - 1, gz), [gx, gy, gz])
 
   if (!cell.exists) return null
