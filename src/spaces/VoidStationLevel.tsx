@@ -4,6 +4,7 @@ import { useXR } from '@react-three/xr'
 import * as THREE from 'three'
 import { Portal } from './Portal'
 import { VS_CELL as CELL_SIZE, VS_PLATFORM as PLATFORM_SIZE, VS_CORRIDOR_W as CORRIDOR_WIDTH, getVoidCellData } from '../utils/collision'
+import { AlienDrones } from '../npcs/AlienDrones'
 
 const RAILING_HEIGHT = 0.9
 const RENDER_RADIUS = 3
@@ -469,6 +470,8 @@ export function VoidStationLevel() {
       {/* Portals - placed 3 cells away from origin so player has room to explore */}
       <Portal position={[CELL_SIZE * 3, 0.15, 0]} targetLevel="backrooms" label="Backrooms" color="#f0d060" />
       <Portal position={[0, 0.15, CELL_SIZE * 3]} targetLevel="poolrooms" label="Pool Rooms" color="#40c8ff" />
+
+      <AlienDrones />
     </>
   )
 }

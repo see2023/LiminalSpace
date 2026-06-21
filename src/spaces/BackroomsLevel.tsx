@@ -9,6 +9,7 @@ import {
 import { BackroomsChunk } from './BackroomsChunk'
 import { Atmosphere } from '../effects/Atmosphere'
 import { Portal } from './Portal'
+import { ShadowCreatures } from '../npcs/ShadowCreatures'
 
 const RENDER_DISTANCE = 2
 
@@ -83,6 +84,8 @@ export function BackroomsLevel() {
 
       <Portal position={portalPos1} targetLevel="poolrooms" label="Pool Rooms" color="#40c8ff" />
       <Portal position={portalPos2} targetLevel="voidstation" label="Void Station" color="#8060f0" />
+
+      <ShadowCreatures />
     </>
   )
 }

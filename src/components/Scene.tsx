@@ -7,6 +7,7 @@ import { HUD } from './HUD'
 import { StartScreen } from './StartScreen'
 import { MobileControls } from './MobileControls'
 import { DebugPanel } from './DebugPanel'
+import { SceneAudio } from '../effects/SceneAudio'
 import { useState, useEffect, useCallback } from 'react'
 import { useGameStore, getEffectiveInputMode } from '../store/gameStore'
 
@@ -40,6 +41,7 @@ export function Scene() {
       <HUD onEnterVR={handleEnterVR} vrSupported={vrSupported} />
       {showMobile && <MobileControls />}
       <DebugPanel />
+      <SceneAudio />
       <Canvas
         gl={{ antialias: true, alpha: false }}
         camera={{ fov: 70, near: 0.1, far: 100, position: [6, 1.6, 6] }}

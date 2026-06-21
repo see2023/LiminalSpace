@@ -7,8 +7,9 @@ import { FluorescentLight } from '../effects/FluorescentLight'
 import { Portal } from './Portal'
 
 import { POOL_MAP, POOL_CELL_SIZE } from '../utils/collision'
+import { PoolCreatures } from '../npcs/PoolCreatures'
 
-const WATER_SURFACE = 0
+const WATER_SURFACE = 0.3
 const CEILING_HEIGHT = 6
 
 function WaterSurface() {
@@ -234,6 +235,8 @@ export function PoolRoomLevel() {
       {/* Portals placed on dry walkways */}
       <Portal position={[-17.5, 1.4, -32.5]} targetLevel="backrooms" label="Backrooms" color="#c8a040" />
       <Portal position={[32.5, 1.4, 32.5]} targetLevel="voidstation" label="Void Station" color="#8060f0" />
+
+      <PoolCreatures />
     </>
   )
 }
