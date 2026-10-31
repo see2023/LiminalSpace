@@ -235,6 +235,7 @@ export function PoolRoomLevel() {
       {/* Portals placed on dry walkways */}
       <Portal position={[-17.5, 1.4, -32.5]} targetLevel="backrooms" label="Backrooms" color="#c8a040" />
       <Portal position={[32.5, 1.4, 32.5]} targetLevel="voidstation" label="Void Station" color="#8060f0" />
+      <Portal position={[-17.5, 1.4, -27.5]} targetLevel="concert" label="演唱会 360°" color="#ff5fa8" />
 
       <PoolCreatures />
     </>

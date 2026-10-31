@@ -3,10 +3,12 @@ import { XR, createXRStore } from '@react-three/xr'
 import { SpaceManager } from '../spaces/SpaceManager'
 import { FPSControls } from './FPSControls'
 import { VRLocomotion, VRDebugHUD } from './VRLocomotion'
+import { VRSceneSwitcher } from './VRSceneSwitcher'
 import { HUD } from './HUD'
 import { StartScreen } from './StartScreen'
 import { MobileControls } from './MobileControls'
 import { DebugPanel } from './DebugPanel'
+import { ConcertControls } from './ConcertControls'
 import { SceneAudio } from '../effects/SceneAudio'
 import { useState, useEffect, useCallback } from 'react'
 import { useGameStore, getEffectiveInputMode } from '../store/gameStore'
@@ -40,6 +42,7 @@ export function Scene() {
       <StartScreen />
       <HUD onEnterVR={handleEnterVR} vrSupported={vrSupported} />
       {showMobile && <MobileControls />}
+      <ConcertControls />
       <DebugPanel />
       <SceneAudio />
       <Canvas
@@ -52,6 +55,7 @@ export function Scene() {
           <FPSControls />
           <VRLocomotion />
           <VRDebugHUD />
+          <VRSceneSwitcher />
         </XR>
       </Canvas>
     </>

@@ -4,7 +4,7 @@ import { XROrigin, useXR } from '@react-three/xr'
 import * as THREE from 'three'
 import { damp, damp2, damp3 } from 'maath/easing'
 import { useGameStore } from '../store/gameStore'
-import type { LevelType } from '../store/gameStore'
+import { LEVELS } from '../utils/levels'
 import { APP_VERSION } from '../version'
 import { isWallAt, isVoidWalkable, getVoidCellData, getPoolFloorHeight, isPoolWall, VS_CELL, PLAYER_RADIUS } from '../utils/collision'
 
@@ -60,7 +60,15 @@ export function VRLocomotion() {
       originRef.current.position.set(0, 0, 0)
       voidTargetY.current = 0
       elevatorCd.current = 0
+    } else if (currentLevel === 'concert') {
+      // 360° 视频：站在球心，朝向复位到视频正前方
+      originRef.current.position.set(0, 0, 0)
+      originRef.current.rotation.y = 0
+      voidTargetY.current = 0
     }
+    // 切换场景时清掉残留的移动惯性，避免新场景里“溜”一下
+    worldVelocity.current.set(0, 0, 0)
+    smoothedInput.current.set(0, 0)
   }, [currentLevel])
 
   useFrame(({ camera, gl }, delta) => {
@@ -107,7 +115,10 @@ export function VRLocomotion() {
       damp(turnState.current, 'value', turn, TURN_DAMP, delta)
       smoothedTurn.current = turnState.current.value
 
-      if (Math.abs(smoothedInput.current.y) > 0.01 || Math.abs(smoothedInput.current.x) > 0.01 || worldVelocity.current.lengthSq() > 0.00001) {
+      // 演唱会（360° 视频）里不能走动：左摇杆留给快退/快进，只保留右摇杆转身
+      const canMove = currentLevel !== 'concert'
+
+      if (canMove && (Math.abs(smoothedInput.current.y) > 0.01 || Math.abs(smoothedInput.current.x) > 0.01 || worldVelocity.current.lengthSq() > 0.00001)) {
         camera.getWorldDirection(_dir.current)
         _dir.current.y = 0
         _dir.current.normalize()
@@ -312,17 +323,10 @@ export function VRLocomotion() {
   return <XROrigin ref={originRef} />
 }
 
-const LEVELS: { id: LevelType; label: string; color: string }[] = [
-  { id: 'backrooms', label: 'Backrooms', color: '#f0d060' },
-  { id: 'poolrooms', label: 'Pool', color: '#60c0f0' },
-  { id: 'voidstation', label: 'Void', color: '#8060f0' },
-]
-
 export function VRDebugHUD() {
   const meshRef = useRef<THREE.Mesh>(null)
   const isPresenting = useXR((s) => s.session != null)
   const currentLevel = useGameStore((s) => s.currentLevel)
-  const setLevel = useGameStore((s) => s.setLevel)
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const textureRef = useRef<THREE.CanvasTexture | null>(null)
@@ -330,7 +334,6 @@ export function VRDebugHUD() {
   const lastUpdate = useRef(0)
   const fpsRef = useRef(0)
   const controllerInfoRef = useRef('')
-  const buttonHitRef = useRef(-1)
 
   if (!canvasRef.current) {
     const canvas = document.createElement('canvas')
@@ -367,31 +370,7 @@ export function VRDebugHUD() {
       }
       controllerInfoRef.current = ctrlInfo || 'No ctrl'
 
-      // Check button presses for level switch
-      // Pico left controller: btn[0]=trigger, btn[1]=grip, btn[4]=X, btn[5]=Y
-      if (session) {
-        for (let i = 0; i < session.inputSources.length; i++) {
-          const src = session.inputSources[i]
-          const gp = src.gamepad
-          if (!gp || src.handedness !== 'left') continue
-          // X button (index 4) cycles forward, Y button (index 5) cycles backward
-          if (gp.buttons[4]?.pressed && buttonHitRef.current !== 4) {
-            buttonHitRef.current = 4
-            const idx = LEVELS.findIndex(l => l.id === currentLevel)
-            const next = LEVELS[(idx + 1) % LEVELS.length]
-            setLevel(next.id)
-            sendLog('info', `[VR] Level switch -> ${next.id}`)
-          } else if (gp.buttons[5]?.pressed && buttonHitRef.current !== 5) {
-            buttonHitRef.current = 5
-            const idx = LEVELS.findIndex(l => l.id === currentLevel)
-            const prev = LEVELS[(idx - 1 + LEVELS.length) % LEVELS.length]
-            setLevel(prev.id)
-            sendLog('info', `[VR] Level switch -> ${prev.id}`)
-          } else if (!gp.buttons[4]?.pressed && !gp.buttons[5]?.pressed) {
-            buttonHitRef.current = -1
-          }
-        }
-      }
+      // 场景切换（左 X / 左 Y）已移到 VRSceneSwitcher：每帧检测，这里只负责显示
 
       const ctx = canvasRef.current.getContext('2d')!
       ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'
@@ -409,24 +388,27 @@ export function VRDebugHUD() {
 
       // Level buttons display
       ctx.font = 'bold 32px monospace'
-      ctx.fillText('Levels (X=next, Y=prev):', 20, 140)
+      ctx.fillText('Levels (X=next, Y=prev):', 20, 130)
       LEVELS.forEach((lv, i) => {
         const isActive = lv.id === currentLevel
         ctx.fillStyle = isActive ? lv.color : '#666666'
-        ctx.font = isActive ? 'bold 36px monospace' : '28px monospace'
+        ctx.font = isActive ? 'bold 34px monospace' : '26px monospace'
         const marker = isActive ? '>>>' : '   '
-        ctx.fillText(`${marker} ${lv.label}`, 40, 190 + i * 50)
+        ctx.fillText(`${marker} ${lv.label}`, 40, 175 + i * 44)
       })
 
       // Instructions
       ctx.fillStyle = '#aaaaaa'
       ctx.font = '22px monospace'
-      ctx.fillText('Left stick: move | Turn: body', 20, 380)
-      ctx.fillText('Trigger: interact | Grip: grab', 20, 410)
-      ctx.fillText('X/Y buttons: switch level', 20, 440)
+      ctx.fillText('Left stick: move | Turn: body', 20, 395)
+      ctx.fillText('Trigger: interact | Grip: grab', 20, 425)
+      ctx.fillText('X/Y buttons: switch level', 20, 455)
 
       textureRef.current.needsUpdate = true
     }
+
+    // 演唱会里隐藏这块调试面板，避免一直挡住视频（X/Y 切换场景的逻辑上面仍然生效）
+    meshRef.current.visible = currentLevel !== 'concert'
 
     // Position HUD in front of camera, upper left
     const target = new THREE.Vector3()

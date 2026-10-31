@@ -284,3 +284,110 @@ html, body, #root {
   border-color: rgba(100, 180, 255, 0.6);
   color: #90d0ff;
 }
+
+/* Concert (360° video) controls */
+.concert-controls {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 64px;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+  padding: 0 12px;
+}
+
+.concert-bar {
+  pointer-events: all;
+  width: min(760px, 100%);
+  background: rgba(8, 10, 24, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  padding: 10px 14px 8px;
+  backdrop-filter: blur(10px);
+  color: rgba(255, 255, 255, 0.9);
+  user-select: none;
+}
+
+.concert-title {
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: #ffd0e8;
+  margin-bottom: 8px;
+}
+
+.concert-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.concert-btn {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  touch-action: manipulation;
+  transition: background 0.2s;
+}
+
+.concert-btn:hover,
+.concert-btn:active {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.concert-btn-primary {
+  background: rgba(255, 95, 168, 0.45);
+  border-color: rgba(255, 140, 195, 0.7);
+  min-width: 64px;
+}
+
+.concert-btn-exit {
+  background: rgba(200, 70, 90, 0.45);
+  border-color: rgba(255, 120, 130, 0.6);
+}
+
+.concert-time {
+  font-family: monospace;
+  font-size: 13px;
+  min-width: 96px;
+  text-align: center;
+  color: #d8e4ff;
+}
+
+.concert-seek {
+  flex: 1 1 140px;
+  min-width: 120px;
+  accent-color: #ff5fa8;
+  touch-action: pan-x;
+  cursor: pointer;
+}
+
+.concert-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: rgba(200, 215, 255, 0.55);
+  letter-spacing: 0.5px;
+}
+
+.concert-status {
+  pointer-events: none;
+  background: rgba(8, 10, 24, 0.8);
+  border: 1px solid rgba(255, 224, 138, 0.4);
+  color: #ffe08a;
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 999px;
+}
+
+.concert-status-error {
+  border-color: rgba(255, 138, 138, 0.5);
+  color: #ff8a8a;
+}

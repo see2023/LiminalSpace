@@ -74,6 +74,13 @@ export function FPSControls() {
       camera.position.set(0, PLAYER_HEIGHT, 0)
       _voidTargetY.current = PLAYER_HEIGHT
       _elevatorCd.current = 0
+    } else if (currentLevel === 'concert') {
+      // 360° 视频：站在球心，正对视频正前方（-Z），不可移动
+      camera.position.set(0, PLAYER_HEIGHT, 0)
+      camera.quaternion.identity()
+      eulerRef.current.set(0, 0, 0)
+      _velocity.current.set(0, 0, 0)
+      _input.current.set(0, 0)
     }
   }, [currentLevel, camera])
 
@@ -140,6 +147,9 @@ export function FPSControls() {
         }
       }
     }
+
+    // 演唱会（360° 视频）：只允许环顾，不移动（视角输入已在上面处理）
+    if (currentLevel === 'concert') return
 
     let blockXZ = false
 

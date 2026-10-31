@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# 360° 视频素材：体积大（数百 MB）且版权归原作者，不入库，本地放入 public/video/
+public/video/*
+!public/video/.gitkeep
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

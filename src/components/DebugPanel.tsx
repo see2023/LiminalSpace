@@ -26,7 +26,7 @@ export function DebugPanel() {
   }, [])
 
   const effectiveMode = getEffectiveInputMode()
-  const levels: LevelType[] = ['backrooms', 'poolrooms', 'voidstation']
+  const levels: LevelType[] = ['backrooms', 'poolrooms', 'voidstation', 'concert']
   const modes: InputMode[] = ['auto', 'desktop', 'mobile', 'vr']
   const webxrSamplesUrl = 'https://immersive-web.github.io/webxr-samples/'
 

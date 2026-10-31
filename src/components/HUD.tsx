@@ -5,6 +5,7 @@ const levelNames: Record<string, string> = {
   backrooms: 'Level 0 - The Backrooms',
   poolrooms: 'Level 37 - The Poolrooms',
   voidstation: 'The Void Station',
+  concert: '周杰伦演唱会 · 360° 全景',
 }
 
 interface HUDProps {

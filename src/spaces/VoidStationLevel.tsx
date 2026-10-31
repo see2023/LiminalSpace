@@ -470,6 +470,7 @@ export function VoidStationLevel() {
       {/* Portals - placed 3 cells away from origin so player has room to explore */}
       <Portal position={[CELL_SIZE * 3, 0.15, 0]} targetLevel="backrooms" label="Backrooms" color="#f0d060" />
       <Portal position={[0, 0.15, CELL_SIZE * 3]} targetLevel="poolrooms" label="Pool Rooms" color="#40c8ff" />
+      <Portal position={[0, 0.15, -CELL_SIZE * 3]} targetLevel="concert" label="演唱会 360°" color="#ff5fa8" />
 
       <AlienDrones />
     </>

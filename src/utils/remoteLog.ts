@@ -30,6 +30,11 @@ function send(level: string, msg: string) {
   }
 }
 
+/** 主动上报一条日志到 yarn dev 终端 / vr-errors.log（info / warn / error） */
+export function remoteLog(level: 'info' | 'warn' | 'error', msg: string) {
+  send(level, msg)
+}
+
 export function installRemoteErrorReporter() {
   if (installed) return
   installed = true

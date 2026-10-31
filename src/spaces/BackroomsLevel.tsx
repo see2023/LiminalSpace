@@ -61,6 +61,8 @@ export function BackroomsLevel() {
   const chunkWorldSize = CHUNK_CELLS * CELL_SIZE
   const portalPos1: [number, number, number] = [chunkWorldSize / 2, 0, chunkWorldSize / 2 + 8]
   const portalPos2: [number, number, number] = [chunkWorldSize / 2 + 8, 0, chunkWorldSize / 2]
+  // 演唱会入口：放在迷宫格子（第 2 列、第 6 行）的正中心，保证走得到
+  const portalPos3: [number, number, number] = [2 * CELL_SIZE + CELL_SIZE / 2, 0, 6 * CELL_SIZE + CELL_SIZE / 2]
 
   return (
     <>
@@ -84,6 +86,7 @@ export function BackroomsLevel() {
 
       <Portal position={portalPos1} targetLevel="poolrooms" label="Pool Rooms" color="#40c8ff" />
       <Portal position={portalPos2} targetLevel="voidstation" label="Void Station" color="#8060f0" />
+      <Portal position={portalPos3} targetLevel="concert" label="演唱会 360°" color="#ff5fa8" />
 
       <ShadowCreatures />
     </>

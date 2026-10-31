@@ -1,21 +1,29 @@
 import { useEffect } from 'react'
 import { useGameStore } from '../store/gameStore'
+import type { LevelType } from '../store/gameStore'
 
-type SceneType = 'backrooms' | 'poolrooms' | 'voidstation'
+/** 有独立 BGM 的场景（演唱会自带视频声音，不放 BGM） */
+type MusicScene = Exclude<LevelType, 'concert'>
 
-const SCENE_TRACKS: Record<SceneType, string> = {
+const SCENE_TRACKS: Record<MusicScene, string> = {
   backrooms: '/audio/backrooms.mp3',
   poolrooms: '/audio/poolrooms.mp3',
   voidstation: '/audio/voidstation.mp3',
 }
 
+const MUSIC_SCENES = Object.keys(SCENE_TRACKS) as MusicScene[]
+
+function hasMusic(level: LevelType): level is MusicScene {
+  return level in SCENE_TRACKS
+}
+
 class SceneMusicPlayer {
-  private tracks: Partial<Record<SceneType, HTMLAudioElement>> = {}
-  private current: SceneType | null = null
+  private tracks: Partial<Record<MusicScene, HTMLAudioElement>> = {}
+  private current: MusicScene | null = null
   private unlocked = false
 
   constructor() {
-    ;(['backrooms', 'poolrooms', 'voidstation'] as SceneType[]).forEach((scene) => {
+    MUSIC_SCENES.forEach((scene) => {
       const audio = new Audio(SCENE_TRACKS[scene])
       audio.loop = true
       audio.preload = 'auto'
@@ -28,7 +36,7 @@ class SceneMusicPlayer {
     this.unlocked = true
   }
 
-  async play(scene: SceneType) {
+  async play(scene: MusicScene) {
     if (!this.unlocked || this.current === scene) return
 
     const prev = this.current ? this.tracks[this.current] : null
@@ -66,7 +74,7 @@ export function SceneAudio() {
   useEffect(() => {
     const handleUserGesture = () => {
       player.unlock()
-      void player.play(currentLevel as SceneType)
+      if (hasMusic(currentLevel)) void player.play(currentLevel)
     }
 
     window.addEventListener('pointerdown', handleUserGesture)
@@ -84,7 +92,7 @@ export function SceneAudio() {
   }, [currentLevel])
 
   useEffect(() => {
-    void player.play(currentLevel as SceneType)
+    if (hasMusic(currentLevel)) void player.play(currentLevel)
   }, [currentLevel])
 
   return null
